@@ -11,3 +11,951 @@ Encoding: UTF-8
 
 RnwWeave: Sweave
 LaTeX: pdfLaTeX
+
+#NETSCIENCE
+
+
+#Sys.setlocale("LC_CTYPE","Greek")
+ 
+library(snow)
+library(snowfall)
+sfInit( parallel=TRUE, cpus=2, 
+	    useRscript=TRUE)  
+
+sfLibrary(igraph)
+sfLibrary(Matrix)
+sfLibrary(lattice)
+sfLibrary(vcd)
+
+#################################################################
+#         							
+#               Δημιουργούμε το δίκτυο μας            
+#								
+##################################################################
+
+nets <- read.graph(file="netscience.net", format =  "pajek" )
+summary(nets)
+nets<-upgrade_graph(nets)
+is.simple(nets)#TRUE: που σημαίνει ότι δεν υπάρχουν λούπες
+
+is.connected(nets) #Ελέγχος συνδετικότητας
+
+graph.density(nets)#Υπολιγισμός πυκνότητας
+			 #0.002173317<<0,25 άρα πολύ αραιό δίκτυο
+
+laynets<-layout.graphopt(nets) #εύρεση συντεταγμένων των κορυφών
+V(nets)$coord1 <-laynets[ ,1] #δίνουμε ως attributes στις κορυφές τις συντεταγμένες
+V(nets)$coord2 <-laynets[ ,2] #των στήλων 1 και 2 του πίνκακα laynets
+ 
+#Δίνουμε μόνιμα χαρακτηριστικά για κορυφές και ακμές
+V(nets)$color<-"red"                                  
+E(nets)$color <-  "steelblue"      
+E(nets)$width <- 1
+V(nets)$size<-1.7
+
+#save(nets, file='Netscience')#Δίνουμε την εντολή save για να αποθηκεύσουμε τα  attributes 
+			      #που του έχουμε δώσει ως τώρα.
+#load('Netscience')
+bc <- biconnected.components(nets)
+bc$no                        ### 465 διασυνδεμένα υπογραφήματα
+bc$components
+
+
+plot(nets,        layout=laynets,      
+			vertex.frame.color="red1",
+		      vertex.label=NA,             
+                  vertex.label.dist=0.2, 
+			vertex.label.font=3, 
+			vertex.label.cex=0.5, 
+	 		vertex.label.color="grey")
+      
+  
+################################################################
+#									   
+#                  Συνιστώσες-Components                     
+#									   
+################################################################
+
+clnets<-clusters(nets);clnets   #Ανάλυση σε συνιστώσες
+clnets$membership               #κορυφές σε κάθε συνιστώσα
+clnets$csize                    #τάξη κάθε συνιστώσας
+clnets$no                       #πλήθος συνιστωσών
+
+
+ver_num<-vcount(nets)                           
+Gc<-max(clnets$csize); Gc          #Η γιγάντια συνιστώσα αποτελείται από 379 κορυφές
+(Gc/ver_num)*100  	               #και αποτελεί το 23,9% του δικτύου
+c2<-rev(sort(clnets$csize))[2]; c2 #Η 2η τάξης συνιστώσα έχει 57 κορυφές 
+(c2/ver_num)*100	    	           #και αποτελεί το 3,6% του δικτύου 
+sort(clnets$csize)                 #Ταξινομούμε τις τάξεις των συνιστωσών
+summary(clnets$csize)              #ελάχιστη τιμή, 25% ποσοστιαίο σημείο, διάμεσος, 
+			                             #μέση τιμή, 75% ποσοστιαίο σημείο, μέγιστη τιμή)
+                                   
+D<-max(clnets$csize);D
+cdnets<-cluster.distribution(nets, cumulative = FALSE)
+cdnets                       #Κατανομή συχνοτήτων της τάξης των συνιστωσών
+
+ccdnets<-cluster.distribution(nets, cumulative = TRUE)
+ccdnets                      #Aθροιστική κατανομή συχνοτήτων της τάξης των συνιστωσών
+
+par(mfrow = c(1, 3))
+plot(cdnets, xlab="size of component", ylab="freq")
+plot(cdnets, xlab="Log size of component", ylab="Log freq", log="xy")
+plot(ccdnets, xlab="Log size of component", ylab="Log CCD", log="xy")
+
+#Ιστόγραμμα
+hist(clnets$csize, xlab="Size of the components", ylab="Frequency",
+col="lightblue", main="Distribution of the order of the components")
+
+#Εμπειρικός έλεγχος υπόθεσης για τη δυναμοκατανομή
+fit1 <-power.law.fit(clnets$csize, xmin=NULL, start=2, force.continuous=FALSE,
+              implementation= "plfit" )   
+fit1                                       
+#a=2.760356, xmin=3
+
+fit2 <-power.law.fit(clnets$csize, xmin=3, start=2, force.continuous=FALSE,
+              implementation= "R.mle")     
+summary(fit2)					
+#a=2.760819, se=01391522
+		
+pl1<-function(x)   x^(-2.760356)   # συνάρτηση πιθανότητας ή πυκνότητας
+pl2<-function(x)   x^(-2.760356+1) # συνάρτηση συμπληρωματικής
+					                         # αθροιστικής κατανομής
+
+par(mfrow = c(1, 3))
+plot(cdnets, xlab="size of component", ylab="freq");
+plot(pl1, 3, D,n=2000,add=TRUE,type="l")
+plot(cdnets, xlab="Log size of component", ylab="Log freq", log="xy");
+plot(pl1, 3, D,n=2000,add=TRUE,type="l")
+plot(ccdnets, xlab="Log size of component", ylab="Log CCD", log="xy");
+plot(pl2, 3, D,n=2000,add=TRUE,type="l")
+
+nets1<-nets
+comps1<-clnets$membership
+colbar<-rainbow(max(comps1))
+par(bg="black",new=FALSE)
+V(nets1)$color <- colbar[comps1]                     
+plot(nets1, layout=laynets,
+		edge.color="lightblue1", 
+		edge.width=0.1, vertex.shape="circle",
+            vertex.frame.color=V(nets1)$color,
+            vertex.color=V(nets1)$color,  vertex.size=1,5,  
+		vertex.label=NA)
+
+################################################################
+#									      
+#	   Δημιουργία Erdos-Renyi τυχαίου δικτύου με 	     
+#		   ίδιο πλήθος κορυφών και ακμών 		     
+#									     
+################################################################
+
+ernet <- erdos.renyi.game(1589, 2742, type= "gnm",
+directed = FALSE, loops = FALSE)
+is.simple(ernet)    	#TRUE                      
+graph.density(ernet)	#0.002173317, όπως και στο nets
+is.connected(ernet)	#FALSE
+
+#Στη συνέχεια αντιπαραθέτουμε τα χαρακτηριστικά του πραγματικού δικτύου με 
+#το ER τυχαίο
+layernet<-layout.graphopt(ernet)   
+V(ernet)$coord1 <-layernet[ ,1]
+V(ernet)$coord2 <-layernet[ ,2] 
+ernet
+
+#save(layernet, file = "myERNETCoordinates")
+
+clernet<-clusters(ernet)
+clernet$no                                       
+clernet$csize                                    
+clernet$membership 
+
+ver_num_ernet<-vcount(ernet) 
+Gcernet<-max(clernet$csize); Gcernet 		#1534 κορυφές
+(Gcernet/ver_num_ernet)*100		 		#96,5% του δικτύου
+c2ernet<-rev(sort(clernet$csize))[2]; c2ernet   #2 κορυφές   
+(c2ernet/ver_num_ernet)*100  				#0,13% του δικτύου
+
+summary(clernet$csize) 
+summary(clnets$csize)   
+
+#pdf("The real and the random.pdf")
+par(mfrow = c(1, 2))                                              
+comps1<-clnets$membership
+colbar<-rainbow(max(comps1))
+par(bg="black",new=FALSE)                          
+V(nets1)$color <- colbar[comps1]
+plot(nets1, layout=laynets,
+		edge.color="steelblue1", 
+		edge.width=0.1, vertex.shape="circle",
+            vertex.frame.color=V(nets1)$color,
+            vertex.color=V(nets1)$color,  vertex.size=1.5,  
+		vertex.label=NA)
+title("NETSCIENCE",  cex.main = 1,   font.main= 4, col.main= "blue")
+
+ernet1<-ernet                                             
+comps2<-clernet$membership
+colbar<-rainbow(max(comps2))
+par(bg="black",new=FALSE)                          
+V(ernet1)$color <- colbar[comps2]
+plot(ernet1,layout=layernet,
+		edge.color="lightblue1", 
+		edge.width=1, vertex.shape="circle",
+            vertex.frame.color=V(ernet1)$color,
+            vertex.color=V(ernet1)$color,  vertex.size=1.5,  
+		vertex.label=NA,
+		vertex.label.dist=0.2, 
+		vertex.label.font=3, 
+		vertex.label.cex=0.5, 
+	 	vertex.label.color="grey")
+title("ER-NETWORK",  cex.main = 1,   font.main= 4, col.main= "blue")
+
+#dev.off()
+
+#################################################################
+# 										
+#           Η κατανομή των βαθμών των κορυφών    		
+#										
+##################################################################
+
+summary(degree(nets)); sdD<-sd(degree(nets)) 
+cvDW<-(sd(degree(nets))/mean(degree(nets))*100)  
+cvDW			 
+# CV=100.5558
+
+denets <- as.numeric(degree(nets)) # ακολουθία βαθμών ως διάνυσμα
+Dnets<-max(denets);Dnets # μέγιστος βαθμός
+ddnets<-degree.distribution(nets, cumulative = FALSE);ddnets #κατανομή βαθμών
+cddnets<-degree.distribution(nets, cumulative = TRUE);cddnets #αθροιστική κατανομή βαθμών
+
+#Δημιουργούμε το γράφημα για το σχήμα της κατανομής
+par(mfrow = c(1, 4))
+plot(ddnets, xlab="degree", ylab="freq")
+plot(ddnets, xlab="Log degree", ylab="freq", log="x")
+plot(ddnets, xlab="Log degree", ylab="Log freq", log="xy")
+plot(cddnets, xlab="Log degree", ylab="Log CCD", log="xy")
+
+#Έλεγχος προσαρμογής στην δυναμοκατανομή
+fit3 <-power.law.fit(denets, xmin=NULL, start=2, force.continuous=FALSE,
+              implementation= "plfit" )   
+fit3                                  
+#a=3.606731, xmin=7   
+                                           
+fit4 <-power.law.fit(denets, xmin=7, start=2, force.continuous=FALSE,
+              implementation= "R.mle")  
+summary(fit4)                        
+#a=3.606714 , se=0.1801958
+      
+
+pl3<-function(x)   x^(-3.3606731)    # συνάρτηση πιθανότητας ή πυκνότητας
+pl4<-function(x)   x^(-3.3606731+1)  # συνάρτηση συμπληρωματικής αθροιστικής κατανομής
+
+par(mfrow = c(1, 3))
+plot(ddnets, xlab="degree", ylab="freq");
+plot(pl3, 4, Dnets,n=2000,add=TRUE,type="l")
+plot(ddnets, xlab="Log degree", ylab="Log freq", log="xy");
+plot(pl3, 4, Dnets,n=2000,add=TRUE,type="l")
+plot(cddnets, xlab="Log degree", ylab="Log CCD", log="xy");
+plot(pl4, 4, Dnets,n=2000,add=TRUE,type="l")
+
+## when the straight line appears after a logarithmic trasformation of both 
+## the degree and the frequency then we suspect a POWER LAW distribution.
+## Usually it is located between two cut-off points (xmin, xmax).
+## We have to search about them by trial and error
+
+
+##  when a straight line appears after a logarithmic transforamtion
+##  of the degrees then the degree distribution is the LOGNORMAL which 
+##  also has properties of scale free distributions (for s>>0)
+
+##################################################################
+#										
+#        Κατανομή των βαθμών του ER τυχαίου δικτύου  		
+#										
+###################################################################
+
+erde <- degree(ernet)
+summary(erde)                  
+summary(degree(nets))
+sd(erde ) # 1.869393 standard deviation
+cvernet <-sd(erde)/mean(erde);cvernet   # 0.5416602 coefficient of variation
+  
+erdelist <-table(erde) #δημιουργούμε ένα data frame με την κατανομή των βαθμών          
+vert <-as.integer(names(erdelist ))    #Δίνουμε τους αριθμούς των κορυφών ως ονόματα
+erdelistdf<- data.frame( "degrees" = vert, 
+                         "number of vertices" = as.vector(erdelist))
+erdelistdf                               ## κατανομή συχνότητας
+
+#Κάνουμε plot την κατανομή των βαθμών και τεστ ελέγχου υπόθεσης
+ddernet<-degree.distribution(ernet, cumulative = FALSE)   
+par(mfrow=c(1,2))
+plot(0:max(degree(ernet)),ddernet, xlab="degree", ylab="freq");
+hist(erde ,  freq=FALSE, right = FALSE, xlab="degree", ylab="freq") 
+
+gfp<-goodfit(erde ,type= "poisson",method= "MinChisq")
+summary(gfp)
+plot(gfp,main="Count data vs Poisson distribution")
+
+###################################################################
+#									    
+#              Η κατανομή των βαρών των ακμών            
+#									    
+####################################################################
+
+summary(E(nets)$weight)
+sdLW<-sd(E(nets)$weight) 
+cvLW<-(sd(E(nets)$weight)/mean(E(nets)$weight))*100 ;cvLW
+Dl<-max(E(nets)$weight);Dl
+
+linkw <-table(E(nets)$weight)  ;linkw          
+linkwN <-as.integer(names(linkw))   
+linkdf<- data.frame( "weight" = linkwN , 
+                         "freq" = as.vector(table(E(nets)$weight)/ecount(nets)))
+linkdf
+
+#έλεγχος προσαρμογής ότι είναι δυναμοκατανομή
+fit1LW <-power.law.fit(linkwN, xmin=NULL, start=2, 
+              force.continuous=FALSE,
+              implementation= "plfit" )  
+fit1LW                               
+#a=3.807427, xmin=2    
+                                          
+fit2LW <-power.law.fit(linkwN, xmin=2, start=2, 
+              force.continuous=FALSE,
+              implementation= "R.mle")  
+summary(fit2LW )                            
+# a=3.807706 , se=0.6744188
+
+pl1gLW<-function(x)   x^(-3.807427)    
+plot(linkdf$weight,  
+		linkdf$freq, log="xy", xlab="Log weight", 
+		ylab="Log density");plot(pl1gLW, 1, Dl,n=2000,add=TRUE,type="l")
+                                             ##   there is a cut off 
+                                             ##   for x > = 7  
+
+plot(linkdf, log="xy", xlab="Log weight", 
+		ylab="Log density");plot(pl1gLW, 1, Dl,n=2000,add=TRUE,type="l")
+                                             
+                                            
+
+######################################################################
+#											  
+#                 Κατανομή της ισχύος των κορυφών                    
+#											   
+######################################################################
+
+V(nets)$strength <- graph.strength(nets, vids = V(nets), 
+                                      weights = E(nets)$weight)     
+
+gws<-as.numeric(graph.strength(nets, vids = V(nets)[degree(nets)!=0], 
+                                      weights = E(nets)$weight))
+
+summary(gws) ; sdstr<-sd(gws) 
+cvstr<-(sd(gws)/mean(gws))*100
+Ds<-max(gws)
+
+strg <-table(V(nets)$strength)    #Kάνουμε σε μορφή data frame την κατανομή       
+strgN <-as.integer(names(strg ))    #Δίνουμε τους αριθμούς των κορυφών ως ονόματα
+strdf<- data.frame( "strength" = strgN , 
+                          "freq" = as.vector(table(V(nets)$strength)/vcount(nets)))
+
+#και τον έλεγχο προσαρμογής power low
+fit1str <-power.law.fit(strgN, xmin=NULL, start=2, 
+              force.continuous=FALSE,
+              implementation= "plfit" )   # a=3.465682
+fit1str                                   # xmin=8
+                                           
+fit2str <-power.law.fit(strgN, xmin=8, start=2, 
+              force.continuous=FALSE,
+              implementation= "R.mle")  
+summary(fit2str )                         # a=3.465928 , se=0.5055773
+
+pl1gsr<-function(x)   x^(-3.465682)       # for the df
+
+plot(strdf$strength,  
+		strdf$freq, log="xy", xlab="Log strength", 
+		ylab="Log density");plot(pl1gsr, 8, Ds,n=2000,add=TRUE,type="l")
+
+##########################################################################
+#                                             					 
+#            Μελέτη της γιγάντιας συνιστώσας (Giant Component)		 
+#         συνήθως όταν το δίκτυο είναι μη συνδετικό (disconnected)	 
+#         και η δεύτερη μεγαλύτερη είναι πολύ μικρότερη της πρώτης	 	
+#		 										 
+##########################################################################
+
+clnets$membership 
+
+gcnets0<-induced.subgraph(nets,V(nets)[clnets$membership == 11])  	  
+gcnets0
+                               
+laygcnets0<-layout.graphopt(gcnets0) 
+V(gcnets0)$coord1 <-laygcnets0[ ,1] 
+V(gcnets0)$coord2 <-laygcnets0[ ,2]
+plot(gcnets0, layout=laygcnets0, 
+                  edge.color="steelblue1",              
+			edge.width=1,                         
+			vertex.shape="circle",
+			vertex.frame.color="red1",
+			vertex.color="red1", 
+			vertex.size=2, 
+			vertex.label=NA,
+                  vertex.label.dist=0.2, 
+			vertex.label.font=4, 
+			vertex.label.cex=0.5, 
+	 		vertex.label.color="red")
+
+
+#Διάμετρος σε όλο το δίκτυο 
+dnets<-diameter(nets, unconnected = TRUE, weights = NA) ; dnets  
+#Διάμετρος=17
+
+#Διάμετρος στη γ. συνιστώσα
+dgcnets0<-diameter(gcnets0, unconnected = FALSE, weights = NA) ; dgcnets0 
+                                           # 17 
+
+#Διάμετρος στο ER(1589,2742) δίκτυο
+dgernet<-diameter(ernet, unconnected = TRUE, weights = NA) ; dgernet   
+                                          # 13  (SMALL WORLD)
+#Οι τιμές στα δυο δίκτυα είναι πολύ κοντά και αυτό ερμηνεύεται ως ένδειξη
+#της ιδιότητας του μικρού κόσμου στο πραγματικό δίκτυο (μικρές αποστάσεις)                                        
+
+
+
+#Μέση απόσταση σε όλο το δίκτυο  
+aplnets0<-average.path.length(nets, directed=FALSE, unconnected=TRUE)  ; aplnets0 
+#Μέση απόσταση 5.82324
+
+#Μέση αόσταση στη γ. συνιστώσα 
+aplgcnets0<-average.path.length(gcnets0,directed=FALSE, 
+					  unconnected=FALSE) ; aplgcnets0
+                                            ## 6.041867 
+                                            
+#Μέση απόσταση στο ER(1589,2742)
+aplernet<-average.path.length(ernet, directed=FALSE, 
+                         unconnected=TRUE)  ; aplernet # 6.006635  (SMALL WORLD) 
+                         
+#Οι τιμές στα δυο δίκτυα είναι πολύ κοντά και αυτό ερμηνεύεται ως ένδειξη
+#της ιδιότητας του μικρού κόσμου στο πραγματικό δίκτυο (μικρές αποστάσεις)
+
+
+
+splH<-path.length.hist (gcnets0, directed = FALSE) #Κατανομή των αποστάσεων
+splH				 
+				
+ 
+   ##      1<=DISTANCE<=17 : διάμετρος
+plot(1:17, splH$res, xlab="distance", ylab="paths",frame=TRUE)
+md<-sum(splH$res %*% 1:17)/(379*378/2); md   ## compute mean distance
+							   ## or average path length
+                                             ## using theory
+
+mdd<-median(rep(1:17, splH$res));mdd  ## compute the median
+mdsd<-sd(rep(1:17, splH$res));mdsd    ## compute the SD
+mdcv<-(mdsd/md)*100;mdcv              ## compute the 
+						  ## coefficient of variation
+
+##########################################################################
+#												 
+#    			       Αποστάσεις και βάρος					 
+#   Ο απλούστερος τρόπος για να μετατρέψουμε το βάρος σε απόσταση είναι  
+#         ο μετασχηματισμός 1/x σε συνδετικό δίκτυο.				 
+#												 
+##########################################################################            
+
+max(E(gcnets0)$weight)              # 4.75
+#αποδοτικότητα - efficiency)
+gcwei<-1/E(gcnets0)$weight   # inverse of the number of articles
+gcwei                        # coauthored by any two scientists
+dgcnetswei<-diameter(gcnets0, directed = FALSE, unconnected = FALSE, 
+	 weights =gcwei );dgcnetswei #38.38758(υπολογισμός σε όλο το δίκτυο)
+
+#########################################
+summary(gcwei)
+hist(gcwei)
+
+##########################################
+#Σταθμισμένη διάμετρος 
+dnets0w1<-max(shortest.paths(gcnets0, weights =gcwei,   
+					   algorithm = "automatic"));dnets0w1
+                                                   #38.38758
+#Σταθμισμένη μέση απόσταση
+aplgcnets0w<-sum(shortest.paths(gcnets0, weights = gcwei, 
+					   algorithm = "automatic"))/(379*378) ;
+						 aplgcnets0w
+                                            #11.4838
+
+
+#####################################################################
+#											
+#      Clustering Coefficient and Hierarchical structure 		
+#											
+#####################################################################
+
+ltg0<-transitivity( nets, type="local", isolates= "zero")   # συντελεστής σύμπλεξης
+										# για κάθε κορυφή
+hieg0<-matrix(c(degree(nets), ltg0), nrow=1589, ncol=2, byrow=FALSE) #πίνακας με
+                    # με τον συντελεστή σύμπλεξης 2η στήλη και το βαθμό 1η στήλη
+
+hieg0N<-na.omit(hieg0)         #Διαγραφή των γραμμών με συντελεστή
+					 #σύμπλεξης απροσδιόριστο (ΝΑ)
+
+hieg0N1<-hieg0N[hieg0N[,2]!= 0, ] ;   min(hieg0N1) #Διαγραφή των γραμμών με συντελεστή
+								   # σύμπλεξης ίσο με 0
+
+# Διάγραμμα διασποράς βαθμών και συντελεστών σύμπλεξης
+plot(hieg0N1[,1], hieg0N1[,2], log='xy',
+			xlab="Log degree", ylab="Log CC",frame=TRUE) 
+                               
+
+#Γραμμική παλινδρόμηση του λογάριθμου του συντελεστή σύμπλεξης στο
+#λογάριθμο του βαθμού
+hier<-lm(log(hieg0N1[,2]) ~ log(hieg0N1[,1]) +1) 
+
+summary(hier)   #constant=0.26, and slope=-0.33,
+
+##   when constant ~ 1, and slope~1, then the nodes with high degree
+##   have small CC , which reveals hierarchy in the network. 
+##   Ravasz, 2004
+
+#Γραφική παράσταση του αποτελέσματος			
+plot(hieg0N1[,1], hieg0N1[,2], log='xy',
+			xlab="degree", ylab="CC",frame=TRUE);
+lines(hieg0N1[,1], exp( 0.25577  -0.33090*log(hieg0N1[,1])))  
+
+#Δεν εμφανίζει ιεραρχική δόμηση
+ 
+
+#####################################################################
+#										    										    
+#   Συντελεστές ομοιότητας – συσχέτισης μεταξύ των κορυφών      
+#										    
+#####################################################################
+
+assortativity.degree (nets, directed = TRUE)     ## 0.4616225 : assortative
+#Ο συντελεστής βρέθηκε ίσος με 0.4616225. Η ερμηνεία αυτής της τιμής 
+#είναι ότι κορυφές μεγάλου βαθμού τείνουν να συνεργάζοντα με κορυφές όμοιου βαθμού.
+
+gknn<-graph.knn(nets, weights=NA)    #Λίστα με ANND ανά κορυφή και ανά βαθμό
+gknn$knnk
+
+#Διαγράφουμε τις τιμές ΝaΝ 
+gknnk<-na.omit(gknn$knnk)             
+
+#Ταξινομούμε σε αύξουσα σειρά τους βαθμούς
+degreesnets0<-as.numeric(names(table(degree(nets))))  
+
+#Διαγράφουμε κορυφές με μηδενικό βαθμό 							
+degreesnets1<-degreesnets0[degreesnets0!=0]                      
+						
+#A asortative network 
+plot(degreesnets1, gknnk, xlab="degree", ylab="knnk",
+	frame=TRUE)                                       
+
+#Κάνουμε γραμμική παλινδρόμση 
+fitgnn<-lm(gknnk ~ degreesnets1 +1)         
+fitgnn
+summary(fitgnn)
+
+#Γραφική παράσταση
+plot(degreesnets1,gknnk, xlab="degree", ylab="knn",frame=TRUE); 
+lines(degreesnets1, 5.67986 +0.15474*degreesnets1 )      
+
+########################################################################
+# 											   
+#      Συσχέτιση μεταξύ βαθμών χρησιμοποιώντας τα βάρη των ακμών     
+#         Weighted Average Nearest neighbor degree (affinity)        
+#											   
+########################################################################
+
+#Σταθμισμένος Συντελεστής ANND
+gwknn<-graph.knn(nets, vids=V(nets), weights = E(nets)$weight)
+
+#Διαγραφή των τιμών NA                                         
+gwknnk<-na.omit(gwknn$knnk)
+
+plot(gknnk,gwknnk, xlab="ANND", ylab="WANND",frame=TRUE)
+lines(gknnk, gknnk ) 
+              
+## As it was seen from Assortativity, vertices with low ANND were the hubs
+## Hence large weight edges of hubs are pointing to vertices with low degree
+## oppositely vertices with high ANND were those with low degree. 
+## Hence large weight edges of low degree vertices pointing to hubs.
+
+
+#Χρησιμοποιώντας WANND και degree
+fitgnnw<-lm(gwknnk ~ degreesnets1 +1)
+fitgnnw
+summary(fitgnnw)					#assortative
+
+  #Γραφική παράσταση
+plot(degreesnets1,gwknnk, xlab="degree", ylab="knnw",frame=TRUE);
+lines(degreesnets1, 7.693545  +0.003406*degreesnets1 )  
+
+##################################################################
+#									    
+#  		             Rich club effect    			    
+#									    
+##################################################################
+
+sort(degree(nets))
+denets_limit<-min(sort(denets)[(length(denets)-ceiling(0.05*length(denets))):length(denets)])
+denets_limit
+# Αν θεωρήσουμε ως ομφαλούς αυτούς που έχουν πάνω από denets_limit=9 γείτονες
+
+rcenets9<-induced.subgraph(gcnets0,V(gcnets0)[degree(gcnets0)>=denets_limit])
+						      #φέρων υπογράφημα κορυφών με βαθμό>=9
+                                       
+rcenets9
+
+is.connected(rcenets9) #TRUE
+
+lay9<-layout.graphopt(rcenets9)
+V(rcenets9)$coord1 <-lay9[ ,1] 
+V(rcenets9)$coord2 <-lay9[ ,2]    
+plot(rcenets9, layout=lay9, 
+                  edge.color="steelblue1",       
+			edge.width=1, 
+			vertex.shape="circle",
+			vertex.frame.color="red1",
+			vertex.color="red1", 
+			vertex.size=5, 
+			vertex.label=V(rcenets9)$name,
+                  vertex.label.dist=0.8, 
+			vertex.label.font=4, 
+			vertex.label.cex=1, 
+	 		vertex.label.color="black")
+
+###########################################
+###########################################
+# θεωρούμε ομφαλούς (hubs) αυτούς που έχουν πάνω από 12 γείτονες
+
+
+rcenets12<-induced.subgraph(gcnets0,V(gcnets0)[degree(gcnets0)>=12])
+						      #φέρων υπογράφημα κορυφών με βαθμό>=12
+                                       
+rcenets12
+
+is.connected(rcenets12) #TRUE
+
+lay12<-layout.graphopt(rcenets12)
+V(rcenets12)$coord1 <-lay12[ ,1] 
+V(rcenets12)$coord2 <-lay12[ ,2]    
+plot(rcenets12, layout=lay12, 
+                  edge.color="steelblue1",       
+			edge.width=1, 
+			vertex.shape="circle",
+			vertex.frame.color="red1",
+			vertex.color="red1", 
+			vertex.size=5, 
+			vertex.label=V(rcenets12)$name,
+                  vertex.label.dist=0.8, 
+			vertex.label.font=4, 
+			vertex.label.cex=1, 
+	 		vertex.label.color="black")
+
+# αυτοι που εχουν πανω απο 19 γειτονες
+rcenets19<-induced.subgraph(gcnets0,V(gcnets0)[degree(gcnets0)>19])  
+                                          ## considering hubs with more 
+							                            ## than 19 collaborators
+rcenets19
+
+lay19<-layout.graphopt(rcenets19)
+V(rcenets19)$coord1 <-lay19[ ,1] 
+V(rcenets19)$coord2 <-lay19[ ,2]
+plot(rcenets19, layout=lay19,          # αναπαράσταση
+                  edge.color="steelblue1",     
+			edge.width=1, 
+			vertex.shape="circle",
+			vertex.frame.color="red1",
+			vertex.color="red1", 
+			vertex.size=5, 
+			vertex.label=V(rcenets19)$name,
+                  vertex.label.dist=0.8, 
+			vertex.label.font=4, 
+			vertex.label.cex=1, 
+	 		vertex.label.color="black")
+							                            ## the rich-club effect
+                                          ## is observed
+
+
+###################################################################
+#								 
+#                 Ύπαρξη μοτίβων (graph motifs)	       
+#								 
+###################################################################
+
+
+#υπογραφήματα 3 κορυφών
+graph.motifs(nets, size = 3)        ## μη συνδετικά :  NA 
+                                    ## με μια ακμή  :  NA 
+                                    ## με 2 ακμές   :  4992 
+                                    ## τρίγωνα      :  3764
+
+# οι τργωνικές σχέσεις αποτελούν στατιστικά σημαντικό στοχείο του δικτύου
+
+### USE FANNMOD   (με έλεγχο υπόθεσης για το πλήθος των Κ3 ή Κ4)
+
+write.graph(nets, "FOR_FANMOD CCN.txt", format=c("edgelist"))
+## then open FANNMOD and run the commands in there
+
+##########################################################################
+#     
+#       Ύπαρξη κοινοτήτων μέσα στο δίκτυο (στη γιγάντια συνιστώσα)		#
+#												 
+##########################################################################
+
+
+ ##community structure in the binary (0-1) network  (το δίκτυο χωρίς βάρη)
+
+com<-fastgreedy.community (gcnets0,merges=TRUE, modularity=TRUE, weights=NULL)
+com                                                  ## 19 comunities
+str(com)
+modularity(com)                                      ## Q=0.84
+membership(com)
+
+#pdf("Science Communities.pdf") 
+plot(com, gcnets0,  
+		vertex.label=NA)							
+#dev.off()
+
+#########################################################################
+#
+#  COMMUNITY STRUCTURE in the weighted network (στο σταθμισμένο δίκτυο)
+#
+#########################################################################
+
+com<-fastgreedy.community (gcnets0,merges=TRUE, modularity=TRUE, 
+		weights=E(gcnets0)$weight)
+com                                                  ## 21 comunities
+str(com)
+modularity(com)                                      ## Q=0.85
+membership(com)
+
+#pdf("Science Communities.pdf") 
+plot(com, gcnets0, 
+		vertex.label=NA)		
+#dev.off()
+
+##################################################################
+#
+#                 CENTRALITY MEASURES IN THE GC      
+#
+##################################################################
+
+cDnets<-degree(gcnets0)                         ## degree centrality
+
+stnetsw<-graph.strength(gcnets0,vids = V(gcnets0), ## strength centrality
+			weights = E(gcnets0)$weight) ## generalizes degree
+
+cEnets1<-round(evcent 
+	(gcnets0, scale = TRUE)$vector,6)    ## eigenvector centrality (max=1)
+
+cEnets<-round(evcent 
+	(gcnets0, scale = FALSE)$vector,6)   ## eigenvector centrality 
+
+cEnetsw<-round(evcent 
+	(gcnets0, scale = TRUE,
+	 weights= 
+	E(gcnets0)$colaborations)$vector,6)  ## weighted eigenvector centrality 
+						    ## (max=1)
+
+cCnets<-round(closeness(gcnets0),6)              ## closeness centrality
+
+cBnets<-round(betweenness
+	(gcnets0, directed = FALSE),6)          ## betweenness centrality
+
+
+
+#Δημιουργία ενός data frame με τα μέτρα κεντρικότητας ανά κορυφή           
+nodesnets<-as.numeric(V(gcnets0)) 
+componentnets<-as.numeric(clusters(gcnets0)$membership)
+
+centralitiesnets<-data.frame(x1=nodesnets, x2=componentnets, x3=cDnets, x4=stnetsw,
+				  x5=cEnets1, x6=cEnetsw, x7=cCnets, x8=cBnets)
+dimnames(centralitiesnets)[[2]]<-c("node" , "component", "degree", 
+					"Wstrength", 
+					 "eigenvC", "WeigenvC", 
+					"closeness", "betweenness")
+
+
+str(centralitiesnets)     #variables in the data frame
+
+  ## Get centrality measures for GIANT COMPONENT
+gcdata.f<-subset(centralitiesnets, 
+		centralitiesnets$component == 1,) 
+gcdata.f                                    
+  ## Sort according to degree and get the first 20 rows
+ord.deg.gcda.f<-gcdata.f[order(-gcdata.f$degree), ][1:20,];  
+				ord.deg.gcda.f  ## order nodes
+
+gcC<-gcnets0                            ## another drawing of the GC
+gcC
+laygcC<-layout.graphopt(gcC)
+V(gcC)$coord1 <-laygcC[ ,1] 
+V(gcC)$coord2 <-laygcC[ ,2]
+par(mfrow = c(1, 2))
+par(bg="slateblue4",new=FALSE)                   ## vertex size analog to  
+Meiggc<-max(gcdata.f$eigenvC)                    ## eigenvector centrality
+V(gcC)$size<-(gcdata.f$eigenvC/Meiggc)*8
+plot.igraph(gcC, layout=laygcC,  
+		asp=1, margin=0.1,
+            edge.color="lightseagreen", edge.width=0.1, 
+		vertex.shape="circle",
+            vertex.frame.color="lightblue",
+            vertex.color="snow",  
+		vertex.size=V(gcC)$size,  vertex.label=NA)
+title(main = list("Eigenvector Centrality", cex = 1,
+                  col = "white", font = 3))
+
+
+par(bg="slateblue4",new=FALSE)                    ## vertex size analog to 
+Meiggc<-max(gcdata.f$degree)                      ## degree centrality
+V(gcC)$size<-(gcdata.f$degree/Meiggc)*8
+plot.igraph(gcC, layout=laygcC, 
+		asp=1, margin=0.1,
+            edge.color="lightseagreen", edge.width=0.1, 
+		vertex.shape="circle",
+            vertex.frame.color="lightblue",
+            vertex.color="snow",  
+		vertex.size=V(gcC)$size,  vertex.label=NA)
+title(main = list("Degree Centrality", cex = 1,
+                  col = "white", font = 3))
+
+
+par(mfrow = c(1, 3))
+par(bg="slateblue4",new=FALSE)                     ## vertex size analog to      
+Meiggc<-max(gcdata.f$Wstrength)                    ## strength centrality
+V(gcC)$size<-(gcdata.f$Wstrength/Meiggc)*8
+plot.igraph(gcC, layout=laygcC,
+		asp=1, margin=0.1,
+            edge.color="lightseagreen", edge.width=0.1, 
+		vertex.shape="circle",
+            vertex.frame.color="lightblue",
+            vertex.color="snow",  
+		vertex.size=V(gcC)$size,  vertex.label=NA)
+title(main = list("Strength Centrality", cex = 1,
+                  col = "white", font = 3))
+
+
+par(bg="slateblue4",new=FALSE)                      ## vertex size analog to     
+Meiggc<-max(gcdata.f$betweenness)                   ## betweenness centrality
+V(gcC)$size<-(gcdata.f$betweenness/Meiggc)*8
+plot.igraph(gcC, layout=laygcC,
+		asp=1, margin=0.1,
+            edge.color="lightseagreen", edge.width=0.1, 
+		vertex.shape="circle",
+            vertex.frame.color="lightblue",
+            vertex.color="snow",  
+		vertex.size=V(gcC)$size,  vertex.label=NA)
+title(main = list("Betweenness Centrality", cex = 1,
+                  col = "white", font = 3))
+
+
+
+par(bg="slateblue4",new=FALSE)                      ## vertex size analog to  
+Meiggc<-max(gcdata.f$closeness)                     ## closeness centrality
+V(gcC)$size<-(gcdata.f$closeness/Meiggc)*5
+plot.igraph(gcC, layout=laygcC,
+		asp=1, margin=0.1,
+            edge.color="lightseagreen", edge.width=0.1, 
+		vertex.shape="circle",
+            vertex.frame.color="lightblue",
+            vertex.color="snow",  
+		vertex.size=V(gcC)$size,  vertex.label=NA)
+title(main = list("Closeness Centrality", cex = 1,
+                  col = "white", font = 3))
+
+##########################################################################
+#
+#               Η γειτονιά ενός κεντρικού κόμβου                         
+#
+##########################################################################
+
+############          Eigenvector centrality neighborhood       #####################
+
+iniv<-subset(centralitiesnets,centralitiesnets$eigenvC == max(centralitiesnets$eigenvC))$node
+neieigenvC<-V(gcC)[ nei( subset(centralitiesnets,centralitiesnets$eigenvC == max(centralitiesnets$eigenvC ))$node)]
+eisub<-induced.subgraph(gcC,c(iniv,neieigenvC))
+V(eisub)$names<-c(iniv,neieigenvC)
+V(eisub)$size<-V(gcC)$size[c(iniv,neieigenvC)]
+eisub
+
+laysub<-layout.graphopt(eisub)
+V(eisub)$coord1 <-laysub[ ,1] 
+V(eisub)$coord2 <-laysub[ ,2]
+par(bg="white", new=FALSE)                          
+plot.igraph(eisub,layout=laysub, 
+			vertex.size=V(nets)$size1,
+			vertex.label=V(eisub)$names, 
+			vertex.label.dist=0.5, 
+			vertex.label.font=1,
+			vertex.label.cex=0.5,
+			vertex.label.color="black", 
+			vertex.label.cex=0.7)
+title("max eigenv centrality neighborhood",  cex.main = 1,   font.main= 4, col.main= "black")
+
+
+############          Degree centrality neighborhood       #################
+
+iniv<-subset(centralitiesnets,centralitiesnets$degree == max(centralitiesnets$degree))$node
+neieigenvC<-V(gcC)[ nei( subset(centralitiesnets,centralitiesnets$degree == max(centralitiesnets$degree))$node)]
+eisub<-induced.subgraph(gcC,c(iniv,neieigenvC))
+V(eisub)$names<-c(iniv,neieigenvC)
+V(eisub)$size<-V(gcC)$size[c(iniv,neieigenvC)]
+eisub
+
+par(bg="white", new=FALSE)                          
+plot.igraph(eisub,layout=laysub, 
+			vertex.size=V(nets)$size2,
+			vertex.label=V(eisub)$names, 
+			vertex.label.dist=0.5, 
+			vertex.label.font=1,
+			vertex.label.cex=0.5,
+			vertex.label.color="black", 
+			vertex.label.cex=0.7)
+title("max degree centrality neighborhood",  cex.main = 1,   font.main= 4, col.main= "black")
+
+
+############          Betweeness centrality neighborhood       #####################
+
+iniv<-subset(centralitiesnets,centralitiesnets$betweenness== max(centralitiesnets$betweenness))$node
+neieigenvC<-V(gcC)[ nei( subset(centralitiesnets,centralitiesnets$betweenness== max(centralitiesnets$betweenness))$node)]
+eisub<-induced.subgraph(gcC,c(iniv,neieigenvC))
+V(eisub)$names<-c(iniv,neieigenvC)
+V(eisub)$size<-V(gcC)$size[c(iniv,neieigenvC)]
+eisub
+
+par(bg="white", new=FALSE)                          
+plot.igraph(eisub,layout=laysub, 
+			vertex.size=V(nets)$size4,
+			vertex.label=V(eisub)$names, 
+			vertex.label.dist=0.5, 
+			vertex.label.font=1,
+			vertex.label.cex=0.5,
+			vertex.label.color="black", 
+			vertex.label.cex=0.7)
+title("max betweenness centrality neighborhood",  cex.main = 1,   font.main= 4, col.main= "black")
+
+
+
+
+############          Closeness centrality neighborhood       #####################
+
+inic<-subset(centralitiesnets,centralitiesnets$closeness == max(centralitiesnets$closeness))$node
+neicloseness<-V(gcC)[ nei( subset(centralitiesnets, centralitiesnets$closeness == max(centralitiesnets$closeness))$node)]
+clsub<-induced.subgraph(gcC,c(inic,neicloseness))
+V(clsub)$names<-c(inic,neicloseness)
+V(clsub)$size<-V(gcC)$size[c(inic,neicloseness)]
+eisub
+
+par(bg="white", new=FALSE)                          
+plot.igraph(clsub,layout=laysub, 
+			vertex.size=V(nets)$size5,
+			vertex.label=V(eisub)$names, 
+			vertex.label.dist=0.5, 
+			vertex.label.font=1,
+			vertex.label.cex=0.5,
+			vertex.label.color="black", 
+			vertex.label.cex=0.7)
+title("max closeness centrality neighborhood",  cex.main = 1,   font.main= 4, col.main= "black")
+
